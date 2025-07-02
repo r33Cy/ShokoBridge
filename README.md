@@ -1,4 +1,4 @@
-# ShokoBridge v4.2
+# ShokoBridge
 
 A robust, stateful automation script designed to bridge the gap between Shoko Server's AniDB-centric organization and Plex's season-based media structure. ShokoBridge creates a perfect, Plex-compatible library structure using your choice of file operations (move, copy, hardlink, or symlink), ensuring your anime library is beautifully organized and playable in any environment.
 
