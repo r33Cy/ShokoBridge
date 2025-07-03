@@ -1,11 +1,11 @@
 # ==================================================================================
-# ShokoBridge Automation Script v4.2 (Production)
+# ShokoBridge Automation Script v4.3 (Production)
 #
 # This script uses a stateful database (SQLite) to build and maintain a
 # Plex-compatible library structure from a Shoko Server instance.
 #
 # Author: https://github.com/r33Cy
-# Date: 2025-07-01
+# Date: 2025-07-03
 #
 # ==================================================================================
 
@@ -163,9 +163,10 @@ def get_shoko_file_details(config, shoko_file_id):
 def get_shoko_episode_details(config, episode_id):
     shoko_url = config['shoko']['url']
     logging.debug(f"  Fetching full Shoko Episode details for ID: {episode_id}")
+    params = {'includeDataFrom': 'AniDB,TMDB'}
     headers = {'apikey': config['shoko']['api_key']}
     try:
-        response = session.get(f"{shoko_url}/api/v3/Episode/{episode_id}", headers=headers, timeout=10)
+        response = session.get(f"{shoko_url}/api/v3/Episode/{episode_id}", headers=headers, params=params, timeout=10)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -190,6 +191,27 @@ def get_tmdb_series_details(config, tmdb_id, cache):
         return data
     except requests.exceptions.RequestException as e:
         logging.error(f"Failed to get TMDb series details for ID {tmdb_id}. Error: {e}")
+        return None
+
+def get_tmdb_movie_details(config, tmdb_id, cache):
+    """Fetches movie details from TMDb API, using a cache to avoid redundant calls."""
+    cache_key = f"movie_{tmdb_id}"
+    if cache_key in cache:
+        logging.debug(f"TMDb Movie ID {tmdb_id} found in cache.")
+        return cache[cache_key]
+    
+    logging.info(f"Querying TMDb API for Movie ID: {tmdb_id}")
+    params = {'api_key': config['tmdb']['api_key']}
+    try:
+        time.sleep(0.25) # Adhere to TMDb rate limiting
+        response = session.get(f"https://api.themoviedb.org/3/movie/{tmdb_id}", params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        cache[cache_key] = data
+        logging.debug(f"TMDb Movie ID {tmdb_id} fetched and cached.")
+        return data
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to get TMDb movie details for ID {tmdb_id}. Error: {e}")
         return None
 
 def get_tmdb_season_details(config, tmdb_id, season_number, cache):
@@ -240,6 +262,10 @@ def run_add_new(args, config):
     if args.dry_run:
         logging.warning("DRY RUN MODE ENABLED: No changes will be made to the filesystem or database.")
 
+    # Get destination paths from config
+    dest_shows = config['directories']['destination']
+    dest_movies = config['directories'].get('destination_movies') or dest_shows
+
     tmdb_cache = load_cache()
     processed_file_ids = get_processed_files_from_db()
     all_shoko_file_ids = get_all_shoko_file_ids(config)
@@ -258,7 +284,8 @@ def run_add_new(args, config):
         try:
             file_data = get_shoko_file_details(config, shoko_file_id)
             if not file_data:
-                unmatched_report.append(f"File ID: {shoko_file_id} | Reason: Failed to fetch file details from Shoko API.")
+                logging.warning(f"Could not get details for Shoko File ID {shoko_file_id}. Skipping.")
+                unmatched_report.append(f"File ID: {shoko_file_id} | Reason: Failed to fetch file details from Shoko.")
                 continue
 
             original_filename = os.path.basename(file_data['Locations'][0]['RelativePath'])
@@ -266,106 +293,175 @@ def run_add_new(args, config):
             
             series_id_data = file_data.get('SeriesIDs', [])
             if not series_id_data:
-                unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: File is not linked to any series in Shoko.")
-                continue
-            
-            episode_id_data = series_id_data[0].get('EpisodeIDs', [])
-            if not episode_id_data:
-                unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: File is not linked to any episodes in Shoko.")
-                continue
-            
-            shoko_ep_ref = episode_id_data[0]
-            tmdb_data = shoko_ep_ref.get('TMDB', {})
-            tmdb_episode_ids = tmdb_data.get('Episode', [])
-            tmdb_show_id = series_id_data[0]['SeriesID']['TMDB']['Show'][0]
-            
-            found_episode = None
-            tmdb_series_data = None
-            
-            # Primary matching method: Direct TMDb Episode ID
-            if tmdb_episode_ids:
-                tmdb_episode_id = tmdb_episode_ids[0]
-                logging.debug(f"Attempting to match with TMDb Episode ID: {tmdb_episode_id}")
-                
-                tmdb_series_data = get_tmdb_series_details(config, tmdb_show_id, tmdb_cache)
-                if tmdb_series_data:
-                    for season in tmdb_series_data.get('seasons', []):
-                        season_number = season.get('season_number')
-                        season_details = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
-                        if not season_details: continue
-
-                        for episode in season_details:
-                            if episode.get('id') == tmdb_episode_id:
-                                found_episode = episode
-                                logging.info(f"  SUCCESS (ID Match): Found TMDb Episode ID {tmdb_episode_id} in Season {season_number}!")
-                                break
-                        if found_episode: break
-            
-            # Fallback matching method: Title Similarity
-            if not found_episode:
-                logging.warning(f"  No TMDb Episode ID link found for '{original_filename}'. Attempting fallback match...")
-                
-                shoko_ep_id = shoko_ep_ref.get('ID')
-                if not shoko_ep_id:
-                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: Fallback failed - missing Shoko Episode ID.")
-                    continue
-                
-                full_episode_details = get_shoko_episode_details(config, shoko_ep_id)
-                if not full_episode_details:
-                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: Fallback failed - could not fetch full episode details.")
-                    continue
-                
-                shoko_ep_title = full_episode_details.get('Name')
-
-                if not shoko_ep_title:
-                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: Fallback failed - missing title from full episode details.")
-                    continue
-
-                logging.debug(f"  > Fallback using Title: '{shoko_ep_title}'")
-
-                if not tmdb_series_data:
-                    tmdb_series_data = get_tmdb_series_details(config, tmdb_show_id, tmdb_cache)
-                
-                if not tmdb_series_data:
-                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: Fallback failed - could not get TMDb series data.")
-                    continue
-
-                best_match = {'score': 0, 'episode': None}
-                for season in sorted(tmdb_series_data.get('seasons', []), key=lambda s: s['season_number']):
-                    season_number = season.get('season_number')
-                    if season_number == 0: continue
-
-                    episodes_in_season = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
-                    for episode_data in sorted(episodes_in_season, key=lambda e: e['episode_number']):
-                        tmdb_ep_title = episode_data.get('name', '')
-                        similarity = SequenceMatcher(None, shoko_ep_title.lower(), tmdb_ep_title.lower()).ratio()
-                        
-                        logging.debug(f"    Comparing with TMDb S{season_number}E{episode_data['episode_number']} '{tmdb_ep_title}'. Similarity: {similarity:.2f}")
-                        if similarity > best_match['score']:
-                            best_match['score'] = similarity
-                            best_match['episode'] = episode_data
-                
-                if best_match['score'] >= config['options']['title_similarity_threshold']:
-                    found_episode = best_match['episode']
-                    logging.info(f"  SUCCESS (Fallback Match): Matched with TMDb S{found_episode['season_number']}E{found_episode['episode_number']} with similarity {best_match['score']:.2f}!")
-            
-            if not found_episode:
-                msg = f"Failed to match file using both TMDb ID and Fallback method."
+                msg = "File is not linked to any series in Shoko. Skipping."
                 logging.warning(f"  {msg}")
                 unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
                 continue
             
-            # --- Path construction and linking ---
-            series_title_cleaned = clean_filename(tmdb_series_data.get('name'))
-            series_year_cleaned = (tmdb_series_data.get('first_air_date') or '').split('-')[0]
-            show_folder_name = f"{series_title_cleaned} ({series_year_cleaned})"
+            episode_id_data = series_id_data[0].get('EpisodeIDs', [])
+            if not episode_id_data:
+                msg = "File is not linked to any episodes in Shoko. Skipping."
+                logging.warning(f"  {msg}")
+                unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
+                continue
             
-            episode_title_cleaned = clean_filename(found_episode.get('name'))
-            season_num_str = str(found_episode.get('season_number')).zfill(2)
-            episode_num_str = str(found_episode.get('episode_number')).zfill(2)
+            # Get full Shoko episode details upfront for type and title info
+            shoko_ep_id = episode_id_data[0].get('ID')
+            if not shoko_ep_id:
+                msg = "Missing Shoko Episode ID in cross-reference. Skipping."
+                logging.warning(f"  {msg}")
+                unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
+                continue
             
-            subfolder_path = os.path.join(config['directories']['destination'], show_folder_name, f"Season {season_num_str}")
-            final_filename_base = f"{show_folder_name} - S{season_num_str}E{episode_num_str} - {episode_title_cleaned}"
+            full_episode_details = get_shoko_episode_details(config, shoko_ep_id)
+            if not full_episode_details:
+                msg = "Could not fetch full episode details from Shoko. Skipping."
+                logging.warning(f"  {msg}")
+                unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
+                continue
+
+            # --- New Media Type Identification Logic ---
+            tmdb_ids = full_episode_details.get('IDs', {}).get('TMDB', {})
+            tmdb_movie_ids = tmdb_ids.get('Movie', [])
+            tmdb_episode_ids = tmdb_ids.get('Episode', [])
+            anidb_type = full_episode_details.get('AniDB', {}).get('Type')
+            shoko_ep_title = full_episode_details.get('Name')
+            logging.debug(f"  AniDB Type: '{anidb_type}', Title: '{shoko_ep_title}'")
+            
+            subfolder_path = None
+            final_filename = None
+            tmdb_series_data = None
+            
+            # --- 1. MOVIE CHECK ---
+            if tmdb_movie_ids:
+                tmdb_movie_id = tmdb_movie_ids[0]
+                logging.info(f"  Identified as MOVIE via TMDb ID: {tmdb_movie_id}")
+
+                movie_details = None
+                # OPTIMIZATION: Check for rich TMDb data from Shoko first
+                shoko_tmdb_movie_data = full_episode_details.get('TMDB', {}).get('Movies', [])
+                if shoko_tmdb_movie_data and shoko_tmdb_movie_data[0].get('ID') == tmdb_movie_id:
+                    logging.info("    > Found full movie data directly from Shoko. Skipping TMDb API call.")
+                    shoko_movie_info = shoko_tmdb_movie_data[0]
+                    movie_details = {
+                        'title': shoko_movie_info.get('Title'),
+                        'release_date': shoko_movie_info.get('ReleasedAt')
+                    }
+                
+                # Fallback: If Shoko didn't provide full data, query TMDb API
+                if not movie_details:
+                    logging.info("    > Shoko did not provide full data. Querying TMDb API as a fallback...")
+                    movie_details = get_tmdb_movie_details(config, tmdb_movie_id, tmdb_cache)
+
+                if not movie_details:
+                    msg = f"Failed to get TMDb details for Movie ID {tmdb_movie_id}. Skipping."
+                    logging.warning(f"  {msg}")
+                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
+                    continue
+
+                movie_title = movie_details.get('title')
+                movie_year = (movie_details.get('release_date') or '').split('-')[0]
+                movie_title_cleaned = clean_filename(movie_title)
+                movie_folder_name = f"{movie_title_cleaned} ({movie_year})"
+                
+                subfolder_path = os.path.join(dest_movies, movie_folder_name)
+                final_filename = f"{movie_folder_name}{os.path.splitext(original_filename)[1]}"
+
+            # --- 2. TV SHOW & EXTRAS CHECK ---
+            else:
+                tmdb_show_id = series_id_data[0]['SeriesID']['TMDB']['Show'][0]
+                tmdb_series_data = get_tmdb_series_details(config, tmdb_show_id, tmdb_cache)
+                if not tmdb_series_data:
+                    msg = f"Cannot process TV/Extra because TMDb series data could not be fetched for show ID {tmdb_show_id}. Skipping."
+                    logging.warning(f"  {msg}")
+                    unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
+                    continue
+                
+                found_episode = None
+                # --- 2a. TV EPISODE CHECK (Direct ID) ---
+                if tmdb_episode_ids:
+                    tmdb_episode_id = tmdb_episode_ids[0]
+                    logging.info(f"  Identified as TV EPISODE via TMDb ID: {tmdb_episode_id}")
+
+                    # OPTIMIZATION: Check for rich TMDb data from Shoko first
+                    shoko_tmdb_ep_data = full_episode_details.get('TMDB', {}).get('Episodes', [])
+                    if shoko_tmdb_ep_data and shoko_tmdb_ep_data[0].get('ID') == tmdb_episode_id:
+                        logging.info("    > Found full episode data directly from Shoko. Skipping TMDb season search.")
+                        shoko_ep_info = shoko_tmdb_ep_data[0]
+                        found_episode = {
+                            'season_number': shoko_ep_info.get('SeasonNumber'),
+                            'episode_number': shoko_ep_info.get('EpisodeNumber'),
+                            'name': shoko_ep_info.get('Title')
+                        }
+
+                    # Fallback: If Shoko didn't provide full data, search TMDb seasons
+                    if not found_episode:
+                        logging.info("    > Shoko did not provide full data. Searching TMDb seasons as a fallback...")
+                        for season in tmdb_series_data.get('seasons', []):
+                            season_number = season.get('season_number')
+                            if season_number == 0: continue # Specials are handled by AniDB type later
+                            
+                            season_details = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
+                            if not season_details: continue
+
+                            for episode in season_details:
+                                if episode.get('id') == tmdb_episode_id:
+                                    found_episode = episode
+                                    logging.debug(f"    > Matched to S{season_number}E{episode.get('episode_number')}")
+                                    break
+                            if found_episode: break
+
+                # --- 2b. TV EPISODE CHECK (Title Fallback) ---
+                if not found_episode and anidb_type == 'Normal':
+                    logging.warning(f"  No TMDb Episode ID link found for a 'Normal' episode. Attempting fallback match by title...")
+                    if not shoko_ep_title:
+                        logging.warning("    > Fallback failed: Shoko episode title is missing.")
+                    else:
+                        best_match = {'score': 0, 'episode': None}
+                        for season in sorted(tmdb_series_data.get('seasons', []), key=lambda s: s['season_number']):
+                            season_number = season.get('season_number')
+                            if season_number == 0: continue
+
+                            episodes_in_season = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
+                            for episode_data in sorted(episodes_in_season, key=lambda e: e['episode_number']):
+                                tmdb_ep_title = episode_data.get('name', '')
+                                similarity = SequenceMatcher(None, shoko_ep_title.lower(), tmdb_ep_title.lower()).ratio()
+                                
+                                if similarity > best_match['score']:
+                                    best_match['score'] = similarity
+                                    best_match['episode'] = episode_data
+                        
+                        if best_match['score'] >= config['options']['title_similarity_threshold']:
+                            found_episode = best_match['episode']
+                            logging.info(f"  SUCCESS (Fallback Match): Matched to S{found_episode['season_number']}E{found_episode['episode_number']} with similarity {best_match['score']:.2f}!")
+
+                # --- 2c. PATH & FILENAME CONSTRUCTION (TV & Extras) ---
+                series_title_cleaned = clean_filename(tmdb_series_data.get('name'))
+                series_year_cleaned = (tmdb_series_data.get('first_air_date') or '').split('-')[0]
+                show_folder_name = f"{series_title_cleaned} ({series_year_cleaned})"
+
+                if found_episode:
+                    # This is a matched TV Episode
+                    episode_title_cleaned = clean_filename(found_episode.get('name'))
+                    season_num_str = str(found_episode.get('season_number')).zfill(2)
+                    episode_num_str = str(found_episode.get('episode_number')).zfill(2)
+
+                    subfolder_path = os.path.join(dest_shows, show_folder_name, f"Season {season_num_str}")
+                    final_filename = f"{show_folder_name} - S{season_num_str}E{episode_num_str} - {episode_title_cleaned}{os.path.splitext(original_filename)[1]}"
+                else:
+                    # This is an Extra
+                    logging.info(f"  File could not be matched to a TV episode. Treating as an EXTRA of type '{anidb_type}'.")
+                    extra_type_folder = "Other" # Default folder for unknown extra types
+                    if anidb_type == 'Trailer':
+                        extra_type_folder = "Trailers"
+                    elif anidb_type in ['Special', 'Credits', 'Parody', 'Other']: # AniDB 'Other' is usually an extra
+                        extra_type_folder = "Featurettes"
+                    
+                    subfolder_path = os.path.join(dest_shows, show_folder_name, extra_type_folder)
+                    descriptive_filename = clean_filename(shoko_ep_title or os.path.splitext(original_filename)[0])
+                    final_filename = f"{descriptive_filename}{os.path.splitext(original_filename)[1]}"
+
+            destination_file_path = os.path.join(subfolder_path, final_filename)
 
             # Normalize the source path for cross-platform compatibility
             relative_path_from_shoko = file_data['Locations'][0]['RelativePath']
@@ -374,9 +470,6 @@ def run_add_new(args, config):
             os_native_relative_path = os.path.join(*path_components)
             source_file_path = os.path.join(config['directories']['source_root'], os_native_relative_path)
             
-            _, extension = os.path.splitext(source_file_path)
-            final_filename = f"{final_filename_base}{extension}"
-            destination_file_path = os.path.join(subfolder_path, final_filename)
 
             # --- Symlink Target Path Logic ---
             symlink_target_path = source_file_path

@@ -1,6 +1,6 @@
 # ShokoBridge
 
-A robust, stateful automation script designed to bridge the gap between Shoko Server's AniDB-centric organization and Plex's season-based media structure. ShokoBridge creates a perfect, Plex-compatible library structure using your choice of file operations (move, copy, hardlink, or symlink), ensuring your anime library is beautifully organized and playable in any environment.
+A robust, stateful automation script designed to bridge the gap between Shoko Server's AniDB-centric organization and Plex's media structure for both TV shows and movies. ShokoBridge creates a perfect, Plex-compatible library structure using your choice of file operations (move, copy, hardlink, or symlink), ensuring your anime library is beautifully organized and playable in any environment.
 
 ---
 
@@ -8,12 +8,12 @@ A robust, stateful automation script designed to bridge the gap between Shoko Se
 
 Shoko Server is the definitive tool for identifying and organizing anime based on the highly accurate AniDB database. However, AniDB uses an absolute episode numbering scheme (e.g., episode 1-201). Plex, on the other hand, relies on The Movie Database (TMDb) for its structure, which organizes shows into discrete seasons.
 
-This creates a data model conflict, causing Plex's default scanner to fail on complex, long-running, or multi-part series, resulting in incorrectly merged shows and missing seasons.
+This creates a data model conflict, causing Plex's default scanner to fail on complex, long-running, or multi-part series, and to misclassify anime movies. This results in incorrectly merged shows, missing seasons, and a disorganized movie library.
 
 **ShokoBridge** is the definitive solution. It acts as an intelligent integration layer:
 
 1. It uses Shoko to reliably identify every file in your collection.
-2. It queries the TMDb API to get the official season/episode structure for each show.
+2. It leverages Shoko's built-in TMDb integration to get the official movie or season/episode structure for each file, minimizing external API calls.
 3. It programmatically builds a perfect, Plex-compatible directory structure using your configured file operation method.
 4. It maintains a stateful database to only process new files and includes robust cleanup and logging features.
 
@@ -24,8 +24,10 @@ The result is a fully automated, "set it and forget it" system for a perfect ani
 * **External Configuration:** All settings are managed in an easy-to-edit `config.json` file.
 * **Stateful Database:** Uses an SQLite database (`shokobridge_state.db`) to keep track of processed files.
 * **Intelligent Matching:**
-  * **Primary:** Matches files using direct TMDb Episode IDs from Shoko for perfect accuracy.
-  * **Fallback:** If no TMDb ID is present, it automatically falls back to matching by episode title similarity, ensuring even partially-unlinked media is processed correctly.
+  * **Handles Movies & Shows:** Correctly identifies and separates anime movies from TV series.
+  * **Optimized API Usage:** Leverages the rich TMDb data provided directly by the Shoko API to determine movie titles, season/episode numbers, and release dates, drastically reducing calls to the TMDb API.
+  * **Robust Identification Hierarchy:** Uses TMDb Movie IDs first, then TMDb Episode IDs for perfect accuracy.
+  * **Smart Fallbacks:** If a direct ID match isn't possible, it falls back to title similarity for regular episodes and uses AniDB types to correctly categorize extras (Specials, Trailers, etc.).
 * **Flexible File Operations:**
   * **`move`**: Moves files to the destination.
   * **`copy`**: Duplicates files, ensuring maximum compatibility.
@@ -68,7 +70,8 @@ The result is a fully automated, "set it and forget it" system for a perfect ani
     },
     "directories": {
         "source_root": "/mnt/z/Media/Anime",
-        "destination": "/mnt/z/Media/Plex-Anime"
+        "destination": "/mnt/z/Media/Plex-Anime-Shows",
+        "destination_movies": "/mnt/z/Media/Plex-Anime-Movies"
     },
     "path_mappings": [
         {
@@ -117,6 +120,7 @@ Open `config.json` and fill in your details.
 * **`directories`**: Use absolute paths for the OS where the script will run.
     * *Windows Example:* `"source_root": "Z:\\Media\\Anime"` (use double backslashes)
     * *Linux/WSL Example:* `"source_root": "/mnt/z/Media/Anime"`
+* **`destination_movies` (Optional):** Specify a separate destination for movie files. If this key is omitted, movies will be placed in a subfolder within the main `destination` directory.
 * **`shoko.url` (for WSL users):** Use the special `http://windows.host:8111`. The script will resolve the IP automatically.
 * **`link_type`**: Your choice of file operation.
     * `'move'`: **Moves** the original file.
@@ -147,4 +151,4 @@ All commands should be run from inside your project folder. **Prefix commands wi
 4. **Initial Run:** Run `pipenv run python ShokoBridge.py` to build your Plex-ready library.
 5. **Configure Plex:** Create a new "TV Shows" library and point it **only** to your `destination` directory. Ensure the agent is "Plex TV Series".
 6. **Ongoing Maintenance:** Periodically run the script to add new files and `--cleanup` to remove old links. This can be automated with Task Scheduler (Windows) or Cron (Linux).
-
+   * **If you configured `destination_movies`**, create a separate "Movies" library in Plex and point it to that path.
