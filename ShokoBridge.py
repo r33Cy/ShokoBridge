@@ -1,5 +1,5 @@
 # ==================================================================================
-# ShokoBridge Automation Script v4.3 (Production)
+# ShokoBridge Automation Script v4.3.1
 #
 # This script uses a stateful database (SQLite) to build and maintain a
 # Plex-compatible library structure from a Shoko Server instance.
@@ -27,11 +27,14 @@ from difflib import SequenceMatcher
 
 # --- Global Setup ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True) # Ensure data directory exists
+
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
-DB_PATH = os.path.join(SCRIPT_DIR, "shokobridge_state.db")
-CACHE_FILE_PATH = os.path.join(SCRIPT_DIR, "shokobridge_tmdb_cache.json")
-LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
-UNMATCHED_REPORT_PATH = os.path.join(SCRIPT_DIR, "shokobridge_unmatched_report.txt")
+DB_PATH = os.path.join(DATA_DIR, "shokobridge_state.db")
+CACHE_FILE_PATH = os.path.join(DATA_DIR, "shokobridge_tmdb_cache.json")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
+UNMATCHED_REPORT_PATH = os.path.join(DATA_DIR, "shokobridge_unmatched_report.txt")
 
 session = requests.Session()
 

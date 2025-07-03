@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  shokobridge:
+    build: .
+    container_name: shokobridge
+    volumes:
+      # Mount the config file (read-only)
+      - ./config.json:/app/config.json:ro
+      # Mount a single data directory for all persistent state
+      - ./data:/app/data
+
+      # --- IMPORTANT: Mount your media libraries ---
+      # The path on the left is on your HOST machine.
+      # The path on the right is inside the CONTAINER.
+      # The container paths MUST match what's in your config.json
+      - /path/on/host/to/anime:/mnt/z/Media/Anime:ro
+      - /path/on/host/to/plex-shows:/mnt/z/Media/Plex-Anime-Shows
+      - /path/on/host/to/plex-movies:/mnt/z/Media/Plex-Anime-Movies
+
+# To handle file permissions on Linux, you might need to add:
+# user: "${PUID}:${PGID}"
+# And create a .env file with PUID=1000 and PGID=1000 (or your user's IDs)

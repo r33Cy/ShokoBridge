@@ -6,15 +6,20 @@ A robust, stateful automation script designed to bridge the gap between Shoko Se
 
 ## The Problem It Solves
 
-Shoko Server is the definitive tool for identifying and organizing anime based on the highly accurate AniDB database. However, AniDB uses an absolute episode numbering scheme (e.g., episode 1-201). Plex, on the other hand, relies on The Movie Database (TMDb) for its structure, which organizes shows into discrete seasons.
+The official **Shoko Metadata** plugin was once the ideal way to integrate an anime library with Plex. However, support for legacy plugins and third-party scanners was officially removed, a change that fully impacted devices like the Nvidia Shield with Plex Media Server v1.41.0.8992.
 
-This creates a data model conflict, causing Plex's default scanner to fail on complex, long-running, or multi-part series, and to misclassify anime movies. This results in incorrectly merged shows, missing seasons, and a disorganized movie library.
+This left the community without a direct integration method, creating a major problem:
+
+*   **Plex's native scanner** requires TMDb-style naming (`Show/Season 01/S01E01.mkv`).
+*   **Shoko's library** is organized by AniDB's absolute numbering.
+
+This incompatibility means Plex cannot understand a raw Shoko library, leading to failed scans, incorrectly merged shows, and missing seasons—a problem especially felt on locked-down devices like the Nvidia Shield where alternative solutions are limited.
 
 **ShokoBridge** is the definitive solution. It acts as an intelligent integration layer:
 
 1. It uses Shoko to reliably identify every file in your collection.
 2. It leverages Shoko's built-in TMDb integration to get the official movie or season/episode structure for each file, minimizing external API calls.
-3. It programmatically builds a perfect, Plex-compatible directory structure using your configured file operation method.
+3. It programmatically builds a perfect, Plex-compatible directory structure that Plex's **native scanner can understand**, using your configured file operation method.
 4. It maintains a stateful database to only process new files and includes robust cleanup and logging features.
 
 The result is a fully automated, "set it and forget it" system for a perfect anime library in Plex, no matter how complex your setup.
@@ -45,15 +50,73 @@ The result is a fully automated, "set it and forget it" system for a perfect ani
 
 ## 1. Prerequisites
 
-* A running **Shoko Server** (v5.1+) with your anime collection scanned.
-* **Python 3.8+** installed on the machine where you will run the script.
-* If using `hardlink` mode, your source and destination folders must be on the same drive/partition.
+*   A running **Shoko Server** (v5.1+) with your anime collection scanned.
+*   **Docker** and **Docker Compose** installed on your system.
+*   If using `hardlink` mode, your source and destination folders must be on the same drive/partition.
 
 ---
 
 ## 2. Setup and Installation
 
-### Step 2.1: Prepare Project Files
+### Docker Setup (Recommended)
+
+This is the easiest and most reliable way to run ShokoBridge.
+
+1.  **Create a Project Folder:** Create a dedicated folder for your ShokoBridge configuration (e.g., `/opt/shokobridge` or `C:\Docker\Shokobridge`).
+
+2.  **Create `config.json`:** Inside this new folder, create a `config.json` file. Copy the template below and fill it with your details.
+    *   **IMPORTANT:** The `shoko.url` must be the actual IP address of your Shoko server (e.g., `http://192.168.1.100:8111`). Do not use `localhost` or `windows.host`.
+    *   The `source_root`, `destination`, and `destination_movies` paths should be the paths *as they will be seen inside the container*. The example below uses `/anime`, `/plex-shows`, and `/plex-movies`.
+
+    ```json
+    {
+        "shoko": {
+            "url": "http://192.168.1.100:8111",
+            "api_key": "YOUR_SHOKO_API_KEY"
+        },
+        "tmdb": {
+            "api_key": "YOUR_TMDB_API_KEY"
+        },
+        "directories": {
+            "source_root": "/anime",
+            "destination": "/plex-shows",
+            "destination_movies": "/plex-movies"
+        },
+        "options": {
+            "link_type": "symlink"
+        }
+    }
+    ```
+
+3.  **Create `docker-compose.yml`:** In the same folder, create a `docker-compose.yml` file. Copy the example below and **edit the volume paths on the left** to match the locations on your host machine.
+
+    ```yaml
+    version: '3.8'
+    services:
+      shokobridge:
+        image: r33cy/shokobridge:latest # Replace with your username if you build your own
+        container_name: shokobridge
+        volumes:
+          # Mount your config file
+          - ./config.json:/app/config.json:ro
+          # Mount your host media paths to the container paths defined in config.json
+          - /path/on/host/to/anime:/anime:ro
+          - /path/on/host/to/plex-shows:/plex-shows
+          - /path/on/host/to/plex-movies:/plex-movies
+          # Mount persistent data and logs
+          - ./data:/app
+    ```
+
+4.  **Run the Script:** Open a terminal in your project folder and use `docker-compose` to run the script.
+    *   **Initial Run:** `docker-compose run --rm shokobridge`
+    *   **Cleanup Run:** `docker-compose run --rm shokobridge --cleanup`
+    *   **Dry Run:** `docker-compose run --rm shokobridge --dry-run --debug`
+
+### Manual Setup (from Source)
+
+Use this method if you cannot use Docker.
+
+1.  **Prepare Project Files**
 1. **Create a Folder:** Create a dedicated folder for the project (e.g., `C:\Scripts\ShokoBridge`).
 2. **Save the Script:** Place the `ShokoBridge.py` script inside this folder.
 3. **Create `config.json`:** In the same folder, create a file named `config.json`. Copy the template below into it.

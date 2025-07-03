@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.github/
+.idea/
+.vscode/
+testing/
+
+# Exclude Docker and Git related files from the image
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Exclude files that will be mounted as volumes
+config.json
+data/
