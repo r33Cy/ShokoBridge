@@ -1,5 +1,5 @@
 # ==================================================================================
-# ShokoBridge Automation Script v4.3.1
+# ShokoBridge Automation Script v4.4.0
 #
 # This script uses a stateful database (SQLite) to build and maintain a
 # Plex-compatible library structure from a Shoko Server instance.
@@ -152,7 +152,7 @@ def get_all_shoko_file_ids(config):
         
 def get_shoko_file_details(config, shoko_file_id):
     shoko_url = config['shoko']['url']
-    logging.debug(f"Fetching full details for Shoko File ID: {shoko_file_id}")
+    logging.debug(f"  Fetching file details for ID: {shoko_file_id}")
     headers = {'apikey': config['shoko']['api_key']}
     params = {'include': 'MediaInfo,XRefs'}
     try:
@@ -165,7 +165,7 @@ def get_shoko_file_details(config, shoko_file_id):
 
 def get_shoko_episode_details(config, episode_id):
     shoko_url = config['shoko']['url']
-    logging.debug(f"  Fetching full Shoko Episode details for ID: {episode_id}")
+    logging.debug(f"  Fetching episode details for ID: {episode_id}")
     params = {'includeDataFrom': 'AniDB,TMDB'}
     headers = {'apikey': config['shoko']['api_key']}
     try:
@@ -179,10 +179,10 @@ def get_shoko_episode_details(config, episode_id):
 def get_tmdb_series_details(config, tmdb_id, cache):
     cache_key = f"series_{tmdb_id}"
     if cache_key in cache:
-        logging.debug(f"TMDb Series ID {tmdb_id} found in cache.")
+        logging.debug(f"    > TMDb Series ID {tmdb_id} found in cache.")
         return cache[cache_key]
     
-    logging.info(f"Querying TMDb API for Series ID: {tmdb_id}")
+    logging.info(f"    > Querying TMDb API for Series ID: {tmdb_id}")
     params = {'api_key': config['tmdb']['api_key']}
     try:
         time.sleep(0.25)
@@ -190,20 +190,20 @@ def get_tmdb_series_details(config, tmdb_id, cache):
         response.raise_for_status()
         data = response.json()
         cache[cache_key] = data
-        logging.debug(f"TMDb Series ID {tmdb_id} fetched and cached.")
+        logging.debug(f"    > TMDb Series ID {tmdb_id} fetched and cached.")
         return data
     except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to get TMDb series details for ID {tmdb_id}. Error: {e}")
+        logging.error(f"    > FAILED to get TMDb series details for ID {tmdb_id}. Error: {e}")
         return None
 
 def get_tmdb_movie_details(config, tmdb_id, cache):
     """Fetches movie details from TMDb API, using a cache to avoid redundant calls."""
     cache_key = f"movie_{tmdb_id}"
     if cache_key in cache:
-        logging.debug(f"TMDb Movie ID {tmdb_id} found in cache.")
+        logging.debug(f"    > TMDb Movie ID {tmdb_id} found in cache.")
         return cache[cache_key]
     
-    logging.info(f"Querying TMDb API for Movie ID: {tmdb_id}")
+    logging.info(f"    > Querying TMDb API for Movie ID: {tmdb_id}")
     params = {'api_key': config['tmdb']['api_key']}
     try:
         time.sleep(0.25) # Adhere to TMDb rate limiting
@@ -211,19 +211,19 @@ def get_tmdb_movie_details(config, tmdb_id, cache):
         response.raise_for_status()
         data = response.json()
         cache[cache_key] = data
-        logging.debug(f"TMDb Movie ID {tmdb_id} fetched and cached.")
+        logging.debug(f"    > TMDb Movie ID {tmdb_id} fetched and cached.")
         return data
     except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to get TMDb movie details for ID {tmdb_id}. Error: {e}")
+        logging.error(f"    > FAILED to get TMDb movie details for ID {tmdb_id}. Error: {e}")
         return None
 
 def get_tmdb_season_details(config, tmdb_id, season_number, cache):
     cache_key = f"season_{tmdb_id}_{season_number}"
     if cache_key in cache:
-        logging.debug(f"  TMDb Season {season_number} for Series {tmdb_id} found in cache.")
+        logging.debug(f"    > TMDb Season {season_number} for Series {tmdb_id} found in cache.")
         return cache[cache_key]
 
-    logging.info(f"  > Querying TMDb API for Season {season_number} details...")
+    logging.info(f"    > Querying TMDb API for Season {season_number} details...")
     params = {'api_key': config['tmdb']['api_key']}
     try:
         time.sleep(0.25)
@@ -231,10 +231,10 @@ def get_tmdb_season_details(config, tmdb_id, season_number, cache):
         response.raise_for_status()
         data = response.json().get('episodes', [])
         cache[cache_key] = data
-        logging.debug(f"  TMDb Season {season_number} for Series {tmdb_id} fetched and cached.")
+        logging.debug(f"    > TMDb Season {season_number} for Series {tmdb_id} fetched and cached.")
         return data
     except requests.exceptions.RequestException as e:
-        logging.error(f"  Failed to get TMDb season {season_number} for ID {tmdb_id}. Error: {e}")
+        logging.error(f"    > FAILED to get TMDb season {season_number} for ID {tmdb_id}. Error: {e}")
         return []
 
 def get_preferred_title(config, names_list):
@@ -250,6 +250,91 @@ def get_preferred_title(config, names_list):
 def clean_filename(name):
     """Removes characters that are invalid in Windows and other filesystems."""
     return re.sub(r'[<>:"/\\|?*]', '-', name) if name else "Untitled"
+
+def find_supplemental_files(media_file_path, dir_cache):
+    """Finds supplemental files using a directory cache to avoid redundant I/O."""
+    if not os.path.exists(media_file_path):
+        return []
+
+    supplemental_files = []
+    source_dir = os.path.dirname(media_file_path)
+    media_basename, _ = os.path.splitext(os.path.basename(media_file_path))
+
+    # Use cache to avoid repeated os.listdir() calls on the same directory
+    if source_dir not in dir_cache:
+        try:
+            logging.debug(f"  Caching directory contents for: {source_dir}")
+            dir_cache[source_dir] = os.listdir(source_dir)
+        except OSError as e:
+            logging.error(f"  Could not scan for supplemental files in {source_dir}. Error: {e}")
+            dir_cache[source_dir] = [] # Cache the error state to avoid retries
+
+    file_list = dir_cache.get(source_dir, [])
+    for filename in file_list:
+        if filename.startswith(media_basename) and filename != os.path.basename(media_file_path):
+            supplemental_ext = filename[len(media_basename):]
+            full_path = os.path.join(source_dir, filename)
+            supplemental_files.append((full_path, supplemental_ext))
+            
+    if supplemental_files:
+        logging.info(f"  Found {len(supplemental_files)} supplemental file(s) for '{os.path.basename(media_file_path)}'.")
+    return supplemental_files
+
+def link_file(config, source_path, dest_path, dry_run):
+    """Handles the file operation (symlink, copy, etc.) for a single file."""
+    logging.debug(f"    Processing link for: '{os.path.basename(source_path)}'")
+    logging.debug(f"      Source: {source_path}")
+    logging.debug(f"      Destination: {dest_path}")
+
+    if os.path.exists(dest_path):
+        logging.debug(f"    Destination already exists, skipping: {os.path.basename(dest_path)}")
+        return True
+
+    link_type = config['options'].get('link_type', 'symlink')
+
+    if dry_run:
+        # In dry run, still log the symlink path calculation for clarity
+        if link_type == 'symlink':
+            calculate_and_log_symlink_target(config, source_path, dest_path)
+        logging.info(f"    [DRY RUN] Would {link_type} '{os.path.basename(source_path)}' to '{os.path.basename(dest_path)}'")
+        return True
+
+    try:
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        if link_type == 'copy':
+            shutil.copy2(source_path, dest_path)
+            logging.info(f"    + COPIED: {os.path.basename(dest_path)}")
+        elif link_type == 'hardlink':
+            os.link(source_path, dest_path)
+            logging.info(f"    + HARD-LINKED: {os.path.basename(dest_path)}")
+        elif link_type == 'move':
+            shutil.move(source_path, dest_path)
+            logging.info(f"    + MOVED: {os.path.basename(dest_path)}")
+        else:  # symlink is the default
+            symlink_target_path = calculate_and_log_symlink_target(config, source_path, dest_path)
+            os.symlink(symlink_target_path, dest_path)
+            logging.info(f"    + SYM-LINKED: {os.path.basename(dest_path)}")
+        return True
+    except Exception as e:
+        logging.error(f"    - FAILED to {link_type} '{os.path.basename(source_path)}'. Error: {e}")
+        return False
+
+def calculate_and_log_symlink_target(config, source_path, dest_path):
+    """Calculates the target path for a symlink and logs the details."""
+    symlink_target_path = source_path
+    if config['options'].get('use_relative_symlinks', False):
+        symlink_target_path = os.path.relpath(source_path, start=os.path.dirname(dest_path))
+        logging.debug(f"      Calculated relative symlink target.")
+    elif config.get('path_mappings'):
+        for mapping in config['path_mappings']:
+            script_path = mapping.get('script_path')
+            plex_path = mapping.get('plex_path')
+            if script_path and plex_path and symlink_target_path.startswith(script_path):
+                symlink_target_path = symlink_target_path.replace(script_path, plex_path, 1)
+                logging.debug(f"      Applied path mapping: '{script_path}' -> '{plex_path}'")
+                break
+    logging.debug(f"      Plex-visible Symlink Target: {symlink_target_path}")
+    return symlink_target_path
 
 def get_processed_files_from_db():
     conn = sqlite3.connect(DB_PATH)
@@ -282,9 +367,11 @@ def run_add_new(args, config):
         return
 
     unmatched_report = []
+    dir_cache = {} # Performance: Initialize cache for directory listings
 
     for shoko_file_id in files_to_process_ids:
         try:
+            logging.debug(f"\n--- Processing File ID: {shoko_file_id} ---")
             file_data = get_shoko_file_details(config, shoko_file_id)
             if not file_data:
                 logging.warning(f"Could not get details for Shoko File ID {shoko_file_id}. Skipping.")
@@ -292,7 +379,7 @@ def run_add_new(args, config):
                 continue
 
             original_filename = os.path.basename(file_data['Locations'][0]['RelativePath'])
-            logging.debug(f"\n--- Processing File ID: {shoko_file_id} | File: '{original_filename}' ---")
+            logging.debug(f"  File: '{original_filename}'")
             
             series_id_data = file_data.get('SeriesIDs', [])
             if not series_id_data:
@@ -337,14 +424,15 @@ def run_add_new(args, config):
             
             # --- 1. MOVIE CHECK ---
             if tmdb_movie_ids:
+                logging.debug("  --- Processing as Movie ---")
                 tmdb_movie_id = tmdb_movie_ids[0]
-                logging.info(f"  Identified as MOVIE via TMDb ID: {tmdb_movie_id}")
+                logging.info(f"    Identified as MOVIE via TMDb ID: {tmdb_movie_id}")
 
                 movie_details = None
                 # OPTIMIZATION: Check for rich TMDb data from Shoko first
                 shoko_tmdb_movie_data = full_episode_details.get('TMDB', {}).get('Movies', [])
                 if shoko_tmdb_movie_data and shoko_tmdb_movie_data[0].get('ID') == tmdb_movie_id:
-                    logging.info("    > Found full movie data directly from Shoko. Skipping TMDb API call.")
+                    logging.info("      > Found full movie data directly from Shoko. Skipping TMDb API call.")
                     shoko_movie_info = shoko_tmdb_movie_data[0]
                     movie_details = {
                         'title': shoko_movie_info.get('Title'),
@@ -353,7 +441,7 @@ def run_add_new(args, config):
                 
                 # Fallback: If Shoko didn't provide full data, query TMDb API
                 if not movie_details:
-                    logging.info("    > Shoko did not provide full data. Querying TMDb API as a fallback...")
+                    logging.info("      > Shoko did not provide full data. Querying TMDb API as a fallback...")
                     movie_details = get_tmdb_movie_details(config, tmdb_movie_id, tmdb_cache)
 
                 if not movie_details:
@@ -372,24 +460,27 @@ def run_add_new(args, config):
 
             # --- 2. TV SHOW & EXTRAS CHECK ---
             else:
-                tmdb_show_id = series_id_data[0]['SeriesID']['TMDB']['Show'][0]
+                logging.debug("  --- Processing as TV Show / Extra ---")
+                tmdb_show_id = series_id_data[0]['SeriesID']['TMDB']['Show'][0] # This assumes one series link                
+                # Fetch series details upfront. This is always needed for the folder name, even if Shoko provides episode data.
+                logging.debug(f"    > Fetching series details for TMDb ID {tmdb_show_id} to determine folder name...")
                 tmdb_series_data = get_tmdb_series_details(config, tmdb_show_id, tmdb_cache)
                 if not tmdb_series_data:
                     msg = f"Cannot process TV/Extra because TMDb series data could not be fetched for show ID {tmdb_show_id}. Skipping."
                     logging.warning(f"  {msg}")
                     unmatched_report.append(f"File: '{original_filename}' | ID: {shoko_file_id} | Reason: {msg}")
                     continue
-                
+
                 found_episode = None
                 # --- 2a. TV EPISODE CHECK (Direct ID) ---
                 if tmdb_episode_ids:
-                    tmdb_episode_id = tmdb_episode_ids[0]
-                    logging.info(f"  Identified as TV EPISODE via TMDb ID: {tmdb_episode_id}")
+                    tmdb_episode_id = tmdb_episode_ids[0] # This assumes one episode link, which is reasonable
+                    logging.info(f"    Identified as TV EPISODE via TMDb ID: {tmdb_episode_id}")
 
                     # OPTIMIZATION: Check for rich TMDb data from Shoko first
                     shoko_tmdb_ep_data = full_episode_details.get('TMDB', {}).get('Episodes', [])
                     if shoko_tmdb_ep_data and shoko_tmdb_ep_data[0].get('ID') == tmdb_episode_id:
-                        logging.info("    > Found full episode data directly from Shoko. Skipping TMDb season search.")
+                        logging.info("      > Found full episode data directly from Shoko. Skipping TMDb season search.")
                         shoko_ep_info = shoko_tmdb_ep_data[0]
                         found_episode = {
                             'season_number': shoko_ep_info.get('SeasonNumber'),
@@ -399,46 +490,50 @@ def run_add_new(args, config):
 
                     # Fallback: If Shoko didn't provide full data, search TMDb seasons
                     if not found_episode:
-                        logging.info("    > Shoko did not provide full data. Searching TMDb seasons as a fallback...")
-                        for season in tmdb_series_data.get('seasons', []):
-                            season_number = season.get('season_number')
-                            if season_number == 0: continue # Specials are handled by AniDB type later
-                            
-                            season_details = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
-                            if not season_details: continue
+                        logging.info("      > Shoko did not provide full data. Searching TMDb seasons as a fallback...")
+                        # tmdb_series_data is already fetched
+                        if tmdb_series_data:
+                            for season in tmdb_series_data.get('seasons', []):
+                                season_number = season.get('season_number')
+                                if season_number == 0: continue # Specials are handled by AniDB type later
+                                
+                                season_details = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
+                                if not season_details: continue
 
-                            for episode in season_details:
-                                if episode.get('id') == tmdb_episode_id:
-                                    found_episode = episode
-                                    logging.debug(f"    > Matched to S{season_number}E{episode.get('episode_number')}")
-                                    break
-                            if found_episode: break
+                                for episode in season_details:
+                                    if episode.get('id') == tmdb_episode_id:
+                                        found_episode = episode
+                                        logging.debug(f"        > Matched to S{season_number}E{episode.get('episode_number')}")
+                                        break
+                                if found_episode: break
 
                 # --- 2b. TV EPISODE CHECK (Title Fallback) ---
                 if not found_episode and anidb_type == 'Normal':
-                    logging.warning(f"  No TMDb Episode ID link found for a 'Normal' episode. Attempting fallback match by title...")
+                    logging.warning(f"    No TMDb Episode ID link found for a 'Normal' episode. Attempting fallback match by title...")
                     if not shoko_ep_title:
-                        logging.warning("    > Fallback failed: Shoko episode title is missing.")
+                        logging.warning("      > Fallback failed: Shoko episode title is missing.")
                     else:
-                        best_match = {'score': 0, 'episode': None}
-                        for season in sorted(tmdb_series_data.get('seasons', []), key=lambda s: s['season_number']):
-                            season_number = season.get('season_number')
-                            if season_number == 0: continue
+                        # tmdb_series_data is already fetched
+                        if tmdb_series_data:
+                            best_match = {'score': 0, 'episode': None}
+                            for season in sorted(tmdb_series_data.get('seasons', []), key=lambda s: s['season_number']):
+                                season_number = season.get('season_number')
+                                if season_number == 0: continue
 
-                            episodes_in_season = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
-                            for episode_data in sorted(episodes_in_season, key=lambda e: e['episode_number']):
-                                tmdb_ep_title = episode_data.get('name', '')
-                                similarity = SequenceMatcher(None, shoko_ep_title.lower(), tmdb_ep_title.lower()).ratio()
-                                
-                                if similarity > best_match['score']:
-                                    best_match['score'] = similarity
-                                    best_match['episode'] = episode_data
-                        
-                        if best_match['score'] >= config['options']['title_similarity_threshold']:
-                            found_episode = best_match['episode']
-                            logging.info(f"  SUCCESS (Fallback Match): Matched to S{found_episode['season_number']}E{found_episode['episode_number']} with similarity {best_match['score']:.2f}!")
+                                episodes_in_season = get_tmdb_season_details(config, tmdb_show_id, season_number, tmdb_cache)
+                                for episode_data in sorted(episodes_in_season, key=lambda e: e['episode_number']):
+                                    tmdb_ep_title = episode_data.get('name', '')
+                                    similarity = SequenceMatcher(None, shoko_ep_title.lower(), tmdb_ep_title.lower()).ratio()
+                                    
+                                    if similarity > best_match['score']:
+                                        best_match['score'] = similarity
+                                        best_match['episode'] = episode_data
+                            
+                            if best_match['score'] >= config['options']['title_similarity_threshold']:
+                                found_episode = best_match['episode']
+                                logging.info(f"    SUCCESS (Fallback Match): Matched to S{found_episode['season_number']}E{found_episode['episode_number']} with similarity {best_match['score']:.2f}!")
 
-                # --- 2c. PATH & FILENAME CONSTRUCTION (TV & Extras) ---
+                # --- 2c. PATH & FILENAME CONSTRUCTION (TV & Extras) ---                
                 series_title_cleaned = clean_filename(tmdb_series_data.get('name'))
                 series_year_cleaned = (tmdb_series_data.get('first_air_date') or '').split('-')[0]
                 show_folder_name = f"{series_title_cleaned} ({series_year_cleaned})"
@@ -453,7 +548,7 @@ def run_add_new(args, config):
                     final_filename = f"{show_folder_name} - S{season_num_str}E{episode_num_str} - {episode_title_cleaned}{os.path.splitext(original_filename)[1]}"
                 else:
                     # This is an Extra
-                    logging.info(f"  File could not be matched to a TV episode. Treating as an EXTRA of type '{anidb_type}'.")
+                    logging.info(f"    File could not be matched to a TV episode. Treating as an EXTRA of type '{anidb_type}'.")
                     extra_type_folder = "Other" # Default folder for unknown extra types
                     if anidb_type == 'Trailer':
                         extra_type_folder = "Trailers"
@@ -473,52 +568,42 @@ def run_add_new(args, config):
             os_native_relative_path = os.path.join(*path_components)
             source_file_path = os.path.join(config['directories']['source_root'], os_native_relative_path)
             
-
-            # --- Symlink Target Path Logic ---
-            symlink_target_path = source_file_path
-            if config['options'].get('use_relative_symlinks', False):
-                symlink_target_path = os.path.relpath(source_file_path, start=os.path.dirname(destination_file_path))
-                logging.debug("  Calculated relative symlink target.")
-            elif config.get('path_mappings'):
-                for mapping in config['path_mappings']:
-                    script_path = mapping.get('script_path')
-                    plex_path = mapping.get('plex_path')
-                    if script_path and plex_path and symlink_target_path.startswith(script_path):
-                        symlink_target_path = symlink_target_path.replace(script_path, plex_path, 1)
-                        logging.debug(f"  Applied path mapping: '{script_path}' -> '{plex_path}'")
-                        break
+            # --- Supplemental File Discovery ---
+            files_to_process = [(source_file_path, destination_file_path)] # List of (source, destination) tuples
+            supplemental_files = find_supplemental_files(source_file_path, dir_cache)
             
-            logging.debug(f"    Script-visible Source Path: {source_file_path}")
-            logging.debug(f"    Plex-visible Symlink Target: {symlink_target_path}")
-            logging.debug(f"    Destination Path: {destination_file_path}")
+            dest_base_name, _ = os.path.splitext(destination_file_path)
+            for supp_source_path, supp_ext in supplemental_files:
+                supp_dest_path = f"{dest_base_name}{supp_ext}"
+                files_to_process.append((supp_source_path, supp_dest_path))
 
-            if not args.dry_run:
-                try:
-                    os.makedirs(subfolder_path, exist_ok=True)
-                    if not os.path.exists(destination_file_path):
-                        link_type = config['options'].get('link_type', 'symlink')
-                        if link_type == 'copy':
-                            shutil.copy2(source_file_path, destination_file_path)
-                            logging.info(f"    + COPIED and recorded: {os.path.basename(destination_file_path)}")
-                        elif link_type == 'hardlink':
-                            os.link(source_file_path, destination_file_path)
-                            logging.info(f"    + HARD-LINKED and recorded: {os.path.basename(destination_file_path)}")
-                        elif link_type == 'move':
-                            shutil.move(source_file_path, destination_file_path)
-                            logging.info(f"    + MOVED and recorded: {os.path.basename(destination_file_path)}")
-                        else: # symlink is the default
-                            os.symlink(symlink_target_path, destination_file_path)
-                            logging.info(f"    + SYM-LINKED and recorded: {os.path.basename(destination_file_path)}")
-                        
-                        conn = sqlite3.connect(DB_PATH)
-                        cursor = conn.cursor()
-                        cursor.execute("INSERT INTO processed_files (shoko_file_id, destination_path) VALUES (?, ?)", (shoko_file_id, destination_file_path))
-                        conn.commit()
-                        conn.close()
-                except Exception as e:
-                    logging.error(f"    - FAILED to link or record {source_file_path}. Error: {e}", exc_info=args.debug)
-            else:
-                logging.info(f"    [DRY RUN] Would {config['options'].get('link_type', 'symlink')} and record: {destination_file_path}")
+            # --- File Operation Logic ---
+            all_successful = True
+            successfully_linked_paths = [] # Track created files for potential rollback
+            for src_path, dest_path in files_to_process:
+                if link_file(config, src_path, dest_path, args.dry_run):
+                    if not args.dry_run:
+                        successfully_linked_paths.append(dest_path)
+                else:
+                    all_successful = False
+                    logging.error(f"  ! FAILED to process a file in the group for '{original_filename}'. Rolling back changes for this group.")
+                    if not args.dry_run:
+                        for path_to_remove in successfully_linked_paths:
+                            try:
+                                if os.path.exists(path_to_remove):
+                                    os.remove(path_to_remove)
+                                    logging.info(f"    - ROLLED BACK (deleted): {os.path.basename(path_to_remove)}")
+                            except Exception as e:
+                                logging.error(f"    - FAILED to roll back {os.path.basename(path_to_remove)}. Error: {e}")
+                    break # Stop processing this group if one file fails
+            
+            if all_successful and not args.dry_run:
+                logging.info(f"  > Successfully processed group for '{original_filename}'. Recording in database.")
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO processed_files (shoko_file_id, destination_path) VALUES (?, ?)", (shoko_file_id, destination_file_path))
+                conn.commit()
+                conn.close()
 
         except Exception as e:
             logging.error(f"An unexpected error occurred processing file ID {shoko_file_id}: {e}", exc_info=args.debug)
@@ -560,11 +645,24 @@ def run_cleanup(args, config):
         logging.info(f"Stale entry found for Shoko File ID: {shoko_id} at '{dest_path}'")
         if not args.dry_run:
             try:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
-                    logging.info("  > Link successfully removed.")
+                # Find and remove the main file and all supplemental files
+                dest_dir = os.path.dirname(dest_path)
+                if os.path.exists(dest_dir):
+                    dest_basename, _ = os.path.splitext(os.path.basename(dest_path))
+                    files_in_dir = os.listdir(dest_dir)
+                    
+                    files_to_remove = [f for f in files_in_dir if os.path.splitext(f)[0] == dest_basename]
+                    
+                    if not files_to_remove:
+                        logging.warning("  > Link path not found, but will remove from DB anyway.")
+                    
+                    for filename in files_to_remove:
+                        full_path = os.path.join(dest_dir, filename)
+                        if os.path.exists(full_path):
+                            os.remove(full_path)
+                            logging.info(f"  > Link successfully removed: {filename}")
                 else:
-                    logging.warning("  > Link path not found, removing from DB anyway.")
+                    logging.warning(f"  > Destination directory not found: {dest_dir}. Removing from DB.")
                 
                 cursor.execute("DELETE FROM processed_files WHERE shoko_file_id = ?", (shoko_id,))
                 logging.info(f"  > Database entry for Shoko File ID {shoko_id} removed.")

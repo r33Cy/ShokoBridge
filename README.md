@@ -30,21 +30,20 @@ The result is a fully automated, "set it and forget it" system for a perfect ani
 * **Stateful Database:** Uses an SQLite database (`shokobridge_state.db`) to keep track of processed files.
 * **Intelligent Matching:**
   * **Handles Movies & Shows:** Correctly identifies and separates anime movies from TV series.
-  * **Optimized API Usage:** Leverages the rich TMDb data provided directly by the Shoko API to determine movie titles, season/episode numbers, and release dates, drastically reducing calls to the TMDb API.
-  * **Robust Identification Hierarchy:** Uses TMDb Movie IDs first, then TMDb Episode IDs for perfect accuracy.
+  * **Optimized API Usage:** Leverages rich TMDb data from the Shoko API to minimize external calls.
+  * **Robust Identification Hierarchy:** Uses TMDb Movie/Episode IDs for perfect accuracy.
   * **Smart Fallbacks:** If a direct ID match isn't possible, it falls back to title similarity for regular episodes and uses AniDB types to correctly categorize extras (Specials, Trailers, etc.).
-* **Flexible File Operations:**
-  * **`move`**: Moves files to the destination.
-  * **`copy`**: Duplicates files, ensuring maximum compatibility.
-  * **`hardlink`**: Creates links that save space (source and destination must be on the same filesystem).
-  * **`symlink`**: Creates symbolic links for cross-filesystem or network setups.
-* **Advanced Pathing for Complex Setups:**
-  * **`use_relative_symlinks`**: Creates relative symlinks to resolve playback issues in environments like Docker or WSL/NAS where paths differ between the script and Plex.
-  * **`path_mappings`**: Translates the script's view of a path to the path Plex sees, providing a powerful solution for the "split-brain" problem.
+* **Comprehensive File Handling:**
+  * **Supplemental File Support:** Automatically finds and processes related files (e.g., `.srt`, `.ass`, `.nfo`) alongside the main video file.
+  * **Transactional File Grouping:** Ensures that a media file and all its supplemental files are processed as a single unit. If any file fails, all changes for that group are rolled back.
+  * **Flexible File Operations:** Choose between `move`, `copy`, `hardlink`, or `symlink`.
+* **Advanced Pathing for Complex Setups:** Supports `use_relative_symlinks` and `path_mappings` for Docker, WSL, and NAS environments.
+* **Robust Library Management:**
+  * **Safe Operations:** `--cleanup` and `--dry-run` flags for predictable management.
+  * **Thorough Cleanup:** The cleanup process removes stale links, their associated supplemental files, and any empty directories left behind.
+  * **Detailed Logging:** Creates daily rolling log files with a `--debug` flag for verbose troubleshooting.
+  * **API Caching & Reporting:** Caches TMDb results to minimize API calls and generates reports for any files it cannot map.
 * **Cross-Platform:** Works seamlessly on both Windows and Linux.
-* **Safe Management:** Includes `--cleanup` and `--dry-run` flags for safe and predictable library management.
-* **Robust Logging:** Creates daily rolling log files with a `--debug` flag for verbose troubleshooting.
-* **API Caching & Reporting:** Caches TMDb results to minimize API calls and generates reports for any files it cannot map.
 
 ---
 
@@ -125,7 +124,7 @@ Use this method if you cannot use Docker.
 ```json
 {
     "shoko": {
-        "url": "[http://windows.host:8111](http://windows.host:8111)",
+        "url": "http://windows.host:8111",
         "api_key": "YOUR_SHOKO_API_KEY"
     },
     "tmdb": {
