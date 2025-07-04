@@ -1,18 +1,37 @@
+# Git and VCS - prevents sending entire git history to the build context
+.git
+.github
+.gitignore
+
+# Python virtual environment
+.venv
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.git/
-.github/
-.idea/
-.vscode/
+
+# IDE and editor directories
+.idea
+.vscode
+
+# Testing artifacts - not needed in the final image
 testing/
 
-# Exclude Docker and Git related files from the image
+# Documentation
+README.md
+
+# Docker-related files that shouldn't be in the image context
 Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Exclude files that will be mounted as volumes
+# Local configuration and data that will be mounted as volumes
 config.json
 data/
+
+# Other generated files
+*.log
+*.db
+*.bak

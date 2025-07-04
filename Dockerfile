@@ -1,17 +1,36 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# ---- Builder Stage ----
+# This stage installs dependencies using pipenv for reproducible builds
+FROM python:3.13.5-alpine AS builder
+
+# Install pipenv
+RUN pip install pipenv
 
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy the dependencies file to the working directory
-COPY requirements.txt .
+# Copy dependency definition files
+COPY Pipfile Pipfile.lock ./
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies into the system python, not a virtualenv.
+# --deploy checks that Pipfile.lock is up-to-date and fails if not.
+# --system installs to the system site-packages.
+RUN pipenv install --system --deploy --ignore-pipfile
 
-# Copy the rest of the application's code to the working directory
-COPY . .
+
+# ---- Final Stage ----
+# This stage creates the final, lean image
+FROM python:3.13.5-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy the installed dependencies from the builder stage
+COPY --from=builder /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
+
+# Copy only the necessary application code from the build context
+# This avoids copying dev files, git history, etc. into the final image
+COPY shokobridge/ ./shokobridge/
+COPY ShokoBridge.py .
 
 # Set the entrypoint to run the script
 ENTRYPOINT ["python", "ShokoBridge.py"]
