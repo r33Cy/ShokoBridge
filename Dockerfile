@@ -25,7 +25,9 @@ FROM python:3.13.5-alpine
 WORKDIR /app
 
 # Copy the installed dependencies from the builder stage
-COPY --from=builder /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
+# The destination path for COPY cannot contain wildcards. We must specify the full,
+# explicit path where the Python interpreter in the final image expects to find them.
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 
 # Copy only the necessary application code from the build context
 # This avoids copying dev files, git history, etc. into the final image
