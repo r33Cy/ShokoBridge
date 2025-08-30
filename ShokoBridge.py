@@ -1,5 +1,5 @@
 # ==================================================================================
-# ShokoBridge Automation Script v5.0.1
+# ShokoBridge Automation Script v5.1.0
 #
 # This script uses a stateful database (SQLite) to build and maintain a
 # Plex-compatible library structure from a Shoko Server instance.
@@ -19,7 +19,7 @@ from shokobridge.utils import setup_logging
 
 # --- Global Setup ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPT_VERSION = "v5.0.1"
+SCRIPT_VERSION = "v5.1.0"
 
 def load_config(config_path):
     """Loads configuration from config.json."""
